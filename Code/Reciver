@@ -1,0 +1,124 @@
+#include <WiFi.h>
+#include <esp_now.h>
+
+// MOTOR PINS
+#define IN1 23
+#define IN2 22
+#define IN3 19
+#define IN4 18
+#define ENA 25
+#define ENB 26
+
+// SPEED (0–255)
+int speedVal = 120;
+
+// Stop motors
+void stopMotors() {
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+
+// Forward
+void moveForward() {
+  analogWrite(ENA, speedVal);
+  analogWrite(ENB, speedVal);
+
+  // both sides forward
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+// Backward
+void moveBackward() {
+  analogWrite(ENA, speedVal);
+  analogWrite(ENB, speedVal);
+
+  // both sides backward
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+// Turn LEFT (fix: left side forward, right side backward)
+void turnLeft() {
+  analogWrite(ENA, speedVal);
+  analogWrite(ENB, speedVal);
+
+  // left forward
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  // right backward
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+// Turn RIGHT (fix: left side backward, right side forward)
+void turnRight() {
+  analogWrite(ENA, speedVal);
+  analogWrite(ENB, speedVal);
+
+  // left backward
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  // right forward
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+// ESP-NOW RECEIVE CALLBACK
+void onDataRecv(const esp_now_recv_info *info, const uint8_t *data, int len) {
+  if (len <= 0) return;
+
+  char cmd = data[0];
+  Serial.print("CMD RECEIVED: ");
+  Serial.println(cmd);
+
+  switch (cmd) {
+    case 'F': moveForward();  break;
+    case 'B': moveBackward(); break;
+    case 'L': turnLeft();     break;   // gesture left  -> turnLeft()
+    case 'R': turnRight();    break;   // gesture right -> turnRight()
+    case 'S':
+    default: stopMotors();    break;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+
+  stopMotors();
+
+  WiFi.disconnect(true);
+  delay(200);
+  WiFi.mode(WIFI_STA);
+  delay(200);
+
+  Serial.print("CAR ESP MAC: ");
+  Serial.println(WiFi.macAddress());
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW INIT FAILED");
+    return;
+  }
+
+  esp_now_register_recv_cb(onDataRecv);
+}
+
+void loop() {}
