@@ -1,0 +1,108 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <Wire.h>
+
+#define MPU_ADDR 0x68   // MPU-6500 I2C address
+
+// CAR ESP32 MAC ADDRESS
+uint8_t receiverMac[] = { 0x00, 0x4B, 0x12, 0x2F, 0x0C, 0x64 };
+
+char lastCmd = 'S';
+
+// Write to MPU register
+void mpuWrite(byte reg, byte data) {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(reg);
+  Wire.write(data);
+  Wire.endTransmission(true);
+}
+
+// Read accelerometer data
+void readAccel(int16_t &ax, int16_t &ay, int16_t &az) {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B);           // ACCEL_XOUT_H
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_ADDR, 6, true);
+
+  ax = (Wire.read() << 8) | Wire.read();
+  ay = (Wire.read() << 8) | Wire.read();
+  az = (Wire.read() << 8) | Wire.read();
+}
+
+// Decide gesture command
+char decideCommand(int16_t ax, int16_t ay, int16_t az) {
+  const int16_t deadZone = 4000;
+
+  if (abs(ax) < deadZone && abs(ay) < deadZone)
+    return 'S';
+
+  if (abs(ay) >= abs(ax)) {
+    if (ay > deadZone)  return 'F';  // forward
+    if (ay < -deadZone) return 'B';  // backward
+  } else {
+    if (ax > deadZone)  return 'R';  // right
+    if (ax < -deadZone) return 'L';  // left
+  }
+
+  return 'S';
+}
+
+// NEW-TYPE ESP-NOW SEND CALLBACK
+// (matches: esp_now_send_cb_t = void (*)(const wifi_tx_info_t*, esp_now_send_status_t))
+void onDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "SEND OK" : "SEND FAIL");
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // I2C for MPU
+  Wire.begin(21, 22);    // SDA, SCL
+  delay(200);
+  mpuWrite(0x6B, 0x00);  // Wake MPU
+  delay(100);
+
+  // WiFi / ESP-NOW
+  WiFi.disconnect(true);
+  delay(200);
+  WiFi.mode(WIFI_STA);
+  delay(200);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW INIT FAILED");
+    return;
+  }
+
+  // register send callback (new signature)
+  esp_now_register_send_cb(onDataSent);
+
+  // Add CAR ESP as peer
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, receiverMac, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Could not add peer!");
+    return;
+  }
+
+  Serial.println("Gesture Transmitter Ready");
+}
+
+void loop() {
+  int16_t ax, ay, az;
+  readAccel(ax, ay, az);
+
+  char cmd = decideCommand(ax, ay, az);
+
+  if (cmd != lastCmd) {
+    lastCmd = cmd;
+    esp_now_send(receiverMac, (uint8_t*)&cmd, 1);
+
+    Serial.print("CMD: ");
+    Serial.println(cmd);
+  }
+
+  delay(60);
+}
