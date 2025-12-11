@@ -1,0 +1,7 @@
+If you wanna power both esp and LN287N on same battery
+connect GND of LN298N to ESP32 GND
+connect 5V of LN298N to ESP32 Vin/5V
+
+Finally Connect the power source of 12V
+--> +ve of Battery to 12V of LN298N
+--> -ve of Battery to GND of LN298N ( REMEMBER GND IS CONNECTED TO -VE OF BATTERY AND GND OF ESP32)
